@@ -18,6 +18,17 @@
 // Shunt resistor value
 #define SHUNT_RESISTOR 0.0015  // 0.0015 Ohm (1.5 milliohm)
 
+// Battery specifications
+#define BATTERY_CAPACITY_AH 300.0  // 300Ah battery bank
+#define PEUKERT_EXPONENT 1.1       // Peukert exponent for lead acid (typically 1.05-1.4)
+#define C20_RATE 15.0              // C20 rate in amps (300Ah / 20h = 15A)
+#define FULL_VOLTAGE_THRESHOLD 13.8  // Voltage threshold for "full" detection
+#define FULL_CURRENT_THRESHOLD 1.0   // Current below this (in A) indicates full when voltage high
+#define FULL_DETECTION_TIME 60000    // Must meet criteria for 60 seconds
+
+// SOC calculation settings
+#define SOC_CALC_INTERVAL_MS 10000  // Calculate SOC every 10 seconds
+
 // WiFi AP settings
 const char* ssid = "Fidelio";
 const char* password = "";  // No password
@@ -31,6 +42,7 @@ struct DataPoint {
   unsigned long timestamp;  // Minutes since boot
   float voltage;
   float current;
+  float soc;  // State of charge percentage
 };
 
 DataPoint dataLog[MAX_DATA_POINTS];
@@ -39,18 +51,31 @@ int dataCount = 0;
 unsigned long lastLogTime = 0;
 unsigned long bootTime = 0;
 
+// SOC tracking variables
+float socPercentage = 100.0;  // Current state of charge percentage
+float ampHoursRemaining = BATTERY_CAPACITY_AH;  // Amp-hours remaining
+unsigned long lastSocCalcTime = 0;
+unsigned long fullDetectionStartTime = 0;
+bool batteryWasFull = false;
+
 INA226 ina(INA226_ADDRESS);
 AsyncWebServer server(80);
 
-// File path for data storage
+// File paths for data storage
 const char* dataFilePath = "/datalog.bin";
+const char* socFilePath = "/soc.bin";
 
 // Forward declarations
 void saveData();
 bool loadData();
+void saveSoc();
+bool loadSoc();
 void loadTestData();
 void logData();
+void calculateSoc();
+void checkBatteryFull(float voltage, float current);
 String getDataJSON();
+String getSocJSON();
 
 // Save data to flash
 void saveData() {
@@ -100,6 +125,124 @@ bool loadData() {
   Serial.println(" data points");
   
   return true;
+}
+
+// Save SOC data to flash
+void saveSoc() {
+  File file = LittleFS.open(socFilePath, "w");
+  if (!file) {
+    Serial.println("Failed to open SOC file for writing");
+    return;
+  }
+  
+  file.write((uint8_t*)&socPercentage, sizeof(socPercentage));
+  file.write((uint8_t*)&ampHoursRemaining, sizeof(ampHoursRemaining));
+  
+  file.close();
+}
+
+// Load SOC data from flash
+bool loadSoc() {
+  if (!LittleFS.exists(socFilePath)) {
+    Serial.println("No saved SOC data found - starting at 100%");
+    return false;
+  }
+  
+  File file = LittleFS.open(socFilePath, "r");
+  if (!file) {
+    Serial.println("Failed to open SOC file for reading");
+    return false;
+  }
+  
+  file.read((uint8_t*)&socPercentage, sizeof(socPercentage));
+  file.read((uint8_t*)&ampHoursRemaining, sizeof(ampHoursRemaining));
+  
+  file.close();
+  
+  Serial.print("SOC loaded from flash: ");
+  Serial.print(socPercentage, 1);
+  Serial.print("% (");
+  Serial.print(ampHoursRemaining, 1);
+  Serial.println(" Ah remaining)");
+  
+  return true;
+}
+
+// Check if battery is full and reset SOC to 100%
+void checkBatteryFull(float voltage, float current) {
+  // Battery is considered full when voltage > threshold AND current < threshold
+  if (voltage >= FULL_VOLTAGE_THRESHOLD && abs(current) < FULL_CURRENT_THRESHOLD) {
+    if (fullDetectionStartTime == 0) {
+      fullDetectionStartTime = millis();
+    } else if (millis() - fullDetectionStartTime >= FULL_DETECTION_TIME) {
+      // Conditions met for required duration
+      if (!batteryWasFull) {
+        socPercentage = 100.0;
+        ampHoursRemaining = BATTERY_CAPACITY_AH;
+        batteryWasFull = true;
+        saveSoc();
+        Serial.println("Battery detected as FULL - SOC reset to 100%");
+      }
+    }
+  } else {
+    fullDetectionStartTime = 0;
+    batteryWasFull = false;
+  }
+}
+
+// Calculate SOC based on current consumption/charging
+void calculateSoc() {
+  if (IS_TEST) return;  // Skip in test mode
+  
+  unsigned long currentTime = millis();
+  if (lastSocCalcTime == 0) {
+    lastSocCalcTime = currentTime;
+    return;
+  }
+  
+  // Calculate time elapsed in hours
+  float hoursElapsed = (currentTime - lastSocCalcTime) / 3600000.0;
+  
+  // Read current
+  float current = ina.getCurrent_mA() / 1000.0;  // Convert to Amps
+  float voltage = ina.getBusVoltage();
+  
+  // Calculate amp-hours consumed/charged
+  float ahChange = current * hoursElapsed;
+  
+  // Apply Peukert correction when discharging
+  if (current < 0) {  // Discharging (negative current)
+    float dischargeCurrent = abs(current);
+    // Peukert correction factor: (I / C20)^(n-1)
+    float peukertFactor = pow(dischargeCurrent / C20_RATE, PEUKERT_EXPONENT - 1.0);
+    ahChange *= peukertFactor;  // Increases effective consumption at higher discharge rates
+  }
+  // When charging (positive current), no Peukert correction needed
+  
+  ampHoursRemaining += ahChange;
+  
+  // Clamp to battery capacity
+  if (ampHoursRemaining > BATTERY_CAPACITY_AH) {
+    ampHoursRemaining = BATTERY_CAPACITY_AH;
+  }
+  if (ampHoursRemaining < 0) {
+    ampHoursRemaining = 0;
+  }
+  
+  // Calculate percentage
+  socPercentage = (ampHoursRemaining / BATTERY_CAPACITY_AH) * 100.0;
+  
+  // Check if battery is full
+  checkBatteryFull(voltage, current);
+  
+  lastSocCalcTime = currentTime;
+  
+  // Save SOC every minute
+  static unsigned long lastSocSaveTime = 0;
+  if (currentTime - lastSocSaveTime >= 60000) {
+    saveSoc();
+    lastSocSaveTime = currentTime;
+  }
 }
 
 // Load 24 hours of test data (144 data points at 10-minute intervals)
@@ -164,7 +307,36 @@ void loadTestData() {
     dataLog[i].timestamp = minutesElapsed;
     dataLog[i].voltage = voltage;
     dataLog[i].current = current;
+    
+    // Calculate SOC for test data
+    // Start at 100% and integrate current over time
+    if (i == 0) {
+      dataLog[i].soc = 100.0;
+      ampHoursRemaining = BATTERY_CAPACITY_AH;
+    } else {
+      // Calculate Ah consumed/charged in this 10-minute interval
+      float hoursElapsed = 10.0 / 60.0;  // 10 minutes = 0.1667 hours
+      float ahChange = current * hoursElapsed;
+      
+      // Apply Peukert correction when discharging
+      if (current < 0) {  // Discharging
+        float dischargeCurrent = abs(current);
+        float peukertFactor = pow(dischargeCurrent / C20_RATE, PEUKERT_EXPONENT - 1.0);
+        ahChange *= peukertFactor;
+      }
+      
+      ampHoursRemaining += ahChange;
+      
+      // Clamp to capacity
+      if (ampHoursRemaining > BATTERY_CAPACITY_AH) ampHoursRemaining = BATTERY_CAPACITY_AH;
+      if (ampHoursRemaining < 0) ampHoursRemaining = 0;
+      
+      dataLog[i].soc = (ampHoursRemaining / BATTERY_CAPACITY_AH) * 100.0;
+    }
   }
+  
+  // Set current SOC to last data point
+  socPercentage = dataLog[dataCount - 1].soc;
   
   Serial.print("Marine battery test data loaded: ");
   Serial.print(dataCount);
@@ -198,6 +370,12 @@ void setup() {
     dataLoaded = true;
   } else {
     dataLoaded = loadData();
+    // Load SOC data
+    if (!loadSoc()) {
+      // If no saved SOC, start at 100%
+      socPercentage = 100.0;
+      ampHoursRemaining = BATTERY_CAPACITY_AH;
+    }
   }
   
   // Initialize I2C with specified pins
@@ -248,10 +426,12 @@ void setup() {
       // Return last logged test data point
       int lastIdx = (dataIndex > 0) ? dataIndex - 1 : dataCount - 1;
       json += "\"voltage\":" + String(dataLog[lastIdx].voltage, 1) + ",";
-      json += "\"current\":" + String(dataLog[lastIdx].current, 1);
+      json += "\"current\":" + String(dataLog[lastIdx].current, 1) + ",";
+      json += "\"soc\":" + String(dataLog[lastIdx].soc, 1);
     } else {
       json += "\"voltage\":" + String(ina.getBusVoltage(), 1) + ",";
-      json += "\"current\":" + String(ina.getCurrent_mA() / 1000.0, 1);
+      json += "\"current\":" + String(ina.getCurrent_mA() / 1000.0, 1) + ",";
+      json += "\"soc\":" + String(socPercentage, 1);
     }
     json += "}";
     request->send(200, "application/json", json);
@@ -266,6 +446,7 @@ void setup() {
     bootTime = millis();
   }
   lastLogTime = millis() - LOG_INTERVAL_MS;  // Trigger immediate log on first loop
+  lastSocCalcTime = millis();  // Initialize SOC calculation timer
   
   // Log first data point immediately on first boot (skip in test mode)
   if (!dataLoaded && !IS_TEST) {
@@ -276,7 +457,12 @@ void setup() {
 void loop() {
   unsigned long currentTime = millis();
   
-  // Log data every 5 minutes (skip in test mode)
+  // Calculate SOC every 10 seconds (only in real mode)
+  if (!IS_TEST && currentTime - lastSocCalcTime >= SOC_CALC_INTERVAL_MS) {
+    calculateSoc();
+  }
+  
+  // Log data every 10 minutes (skip in test mode)
   if (!IS_TEST && currentTime - lastLogTime >= LOG_INTERVAL_MS) {
     logData();
     lastLogTime = currentTime;
@@ -294,6 +480,7 @@ void logData() {
   dataLog[dataIndex].timestamp = minutesSinceBoot;
   dataLog[dataIndex].voltage = voltage;
   dataLog[dataIndex].current = current;
+  dataLog[dataIndex].soc = socPercentage;
   
   dataIndex = (dataIndex + 1) % MAX_DATA_POINTS;
   if (dataCount < MAX_DATA_POINTS) {
@@ -306,7 +493,9 @@ void logData() {
   Serial.print(voltage, 1);
   Serial.print(" V, ");
   Serial.print(current, 1);
-  Serial.println(" A");
+  Serial.print(" A, SOC: ");
+  Serial.print(socPercentage, 1);
+  Serial.println(" %");
   
   // Save to flash after each log (only if not in test mode)
   if (!IS_TEST) {
@@ -338,6 +527,13 @@ String getDataJSON() {
     int idx = (startIdx + i) % MAX_DATA_POINTS;
     if (i > 0) json += ",";
     json += String(dataLog[idx].current, 1);
+  }
+  
+  json += "],\"soc\":[";
+  for (int i = 0; i < dataCount; i++) {
+    int idx = (startIdx + i) % MAX_DATA_POINTS;
+    if (i > 0) json += ",";
+    json += String(dataLog[idx].soc, 1);
   }
   
   json += "]}";

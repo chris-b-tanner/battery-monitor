@@ -53,7 +53,7 @@
     }
     canvas {
       width: 100%;
-      height: 250px;
+      height: 150px;
       display: block;
     }
     .update-time {
@@ -73,6 +73,9 @@
       <div class="stat-item">
         <div class="stat-value" id="currentCurrent">--</div>
       </div>
+      <div class="stat-item">
+        <div class="stat-value" id="currentSoc">--</div>
+      </div>
     </div>
     
     <div class="chart-container">
@@ -85,16 +88,22 @@
       <canvas id="currentChart"></canvas>
     </div>
     
+    <div class="chart-container">
+      <div class="chart-title">Battery Level (%)</div>
+      <canvas id="socChart"></canvas>
+    </div>
+    
     <div class="update-time" id="updateTime">Loading...</div>
   </div>
 
   <script>
     class SimpleChart {
-      constructor(canvas, color, showZeroLine = false) {
+      constructor(canvas, color, showZeroLine = false, fixedYMax = null) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
         this.color = color;
         this.showZeroLine = showZeroLine;
+        this.fixedYMax = fixedYMax;
         this.data = [];
         this.labels = [];
         this.resize();
@@ -141,12 +150,22 @@
         if (this.data.length === 0) return;
         
         // Find min/max values
-        const minVal = Math.min(...this.data);
-        const maxVal = Math.max(...this.data);
-        const range = maxVal - minVal || 1;
-        const padding_val = range * 0.1;
-        const yMin = minVal - padding_val;
-        const yMax = maxVal + padding_val;
+        let minVal = Math.min(...this.data);
+        let maxVal = Math.max(...this.data);
+        
+        // Use fixed max if provided (for SOC chart)
+        if (this.fixedYMax !== null) {
+          maxVal = this.fixedYMax;
+          minVal = 0;  // SOC always starts at 0
+        } else {
+          const range = maxVal - minVal || 1;
+          const padding_val = range * 0.1;
+          minVal = minVal - padding_val;
+          maxVal = maxVal + padding_val;
+        }
+        
+        const yMin = minVal;
+        const yMax = maxVal;
         const yRange = yMax - yMin;
         
         // Draw grid lines and Y-axis labels
@@ -276,7 +295,7 @@
         // Draw line on top
         ctx.beginPath();
         ctx.strokeStyle = this.color;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 1;
         
         this.data.forEach((value, i) => {
           const x = padding.left + (chartWidth / (this.data.length - 1)) * i;
@@ -293,20 +312,24 @@
       }
     }
     
-    let voltageChart, currentChart;
+    let voltageChart, currentChart, socChart;
     
     function initCharts() {
       const voltageCanvas = document.getElementById('voltageChart');
       const currentCanvas = document.getElementById('currentChart');
+      const socCanvas = document.getElementById('socChart');
       
-      voltageChart = new SimpleChart(voltageCanvas, '#4BC0C0', false);
-      currentChart = new SimpleChart(currentCanvas, '#888888', true);  // grey line, show zero line
+      voltageChart = new SimpleChart(voltageCanvas, '#4BC0C0', false, null);
+      currentChart = new SimpleChart(currentCanvas, '#888888', true, null);  // grey line, show zero line
+      socChart = new SimpleChart(socCanvas, '#10B981', false, 100);  // green, fixed max 100%
       
       window.addEventListener('resize', () => {
         voltageChart.resize();
         voltageChart.draw();
         currentChart.resize();
         currentChart.draw();
+        socChart.resize();
+        socChart.draw();
       });
     }
     
@@ -317,6 +340,7 @@
         
         voltageChart.update(data.timestamps, data.voltages);
         currentChart.update(data.timestamps, data.currents);
+        socChart.update(data.timestamps, data.soc);
         
         document.getElementById('updateTime').textContent = 
           'Last updated: ' + new Date().toLocaleTimeString();
@@ -334,6 +358,8 @@
           data.voltage.toFixed(1) + ' V';
         document.getElementById('currentCurrent').textContent = 
           data.current.toFixed(1) + ' A';
+        document.getElementById('currentSoc').textContent = 
+          data.soc.toFixed(1) + ' %';
       } catch (error) {
         console.error('Error fetching current values:', error);
       }
