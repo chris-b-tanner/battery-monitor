@@ -4,10 +4,10 @@ A yacht/boat battery monitoring system with web interface for tracking voltage a
 
 ## Features
 - 📊 Logs data every 10 minutes
-- 💾 Stores up to 3 days of data (432 points)
+- 💾 Stores up to 48 hours of data (288 points)
 - 🔄 Data persists through power outages
 - 📱 Mobile-responsive web interface
-- 📈 Real-time voltage and current charts
+- 📈 Real-time voltage and current charts with relative time (-48h to now)
 - 🔋 State of Charge (SOC) tracking with amp-hour integration
 - 📐 Peukert's Law applied for accurate SOC at varying discharge rates
 - ⚡ Automatic full battery detection (resets SOC to 100%)
@@ -62,10 +62,11 @@ After uploading the filesystem, upload the main code as normal:
 ## Configuration
 
 ### Test Mode
-Test mode is **enabled by default** and provides 24 hours of realistic marine battery data at 10-minute intervals, showing:
+Test mode is **enabled by default** and provides 48 hours of realistic marine battery data at 10-minute intervals, showing:
 - Night discharge patterns (negative current)
 - Solar charging during the day (positive current)
 - Realistic voltage fluctuations (11-14V range)
+- Two complete day/night cycles
 
 To disable test mode and use real sensor data:
 - Edit `src/main.cpp`

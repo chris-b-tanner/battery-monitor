@@ -35,7 +35,7 @@ const char* password = "";  // No password
 
 // Data logging settings
 #define LOG_INTERVAL_MS (10 * 60 * 1000)  // 10 minutes in milliseconds
-#define MAX_DATA_POINTS 432  // 3 days at 10-minute intervals (3*24*6)
+#define MAX_DATA_POINTS 288  // 48 hours at 10-minute intervals (48*6)
 
 // Data structure
 struct DataPoint {
@@ -245,17 +245,17 @@ void calculateSoc() {
   }
 }
 
-// Load 24 hours of test data (144 data points at 10-minute intervals)
+// Load 48 hours of test data (288 data points at 10-minute intervals)
 void loadTestData() {
-  Serial.println("Loading 24 hours of marine battery test data...");
+  Serial.println("Loading 48 hours of marine battery test data...");
   
-  dataCount = 144;  // 24 hours * 6 (10-min intervals per hour)
+  dataCount = 288;  // 48 hours * 6 (10-min intervals per hour)
   dataIndex = 0;
   bootTime = millis();
   
   for (int i = 0; i < dataCount; i++) {
     unsigned long minutesElapsed = i * 10;  // 10 minute intervals
-    float hourOfDay = (minutesElapsed / 60.0);
+    float hourOfDay = fmod(minutesElapsed / 60.0, 24.0);  // Wrap to 24-hour cycle
     
     // Generate realistic marine battery voltage and current patterns
     float voltage, current;
@@ -340,8 +340,8 @@ void loadTestData() {
   
   Serial.print("Marine battery test data loaded: ");
   Serial.print(dataCount);
-  Serial.println(" data points (10 minute intervals)");
-  Serial.println("Pattern: Night discharge → Dawn transition → Day solar charge → Dusk → Evening discharge");
+  Serial.println(" data points (48 hours, 10 minute intervals)");
+  Serial.println("Pattern: Night discharge → Dawn transition → Day solar charge → Dusk → Evening discharge (repeating)");
 }
 
 void setup() {

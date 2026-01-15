@@ -38,6 +38,15 @@
       font-size: 28px;
       font-weight: 600;
     }
+    .stat-value.red {
+      color: #ef4444;
+    }
+    .stat-value.amber {
+      color: #f59e0b;
+    }
+    .stat-value.green {
+      color: #10b981;
+    }
     .chart-container {
       background: white;
       border-radius: 8px;
@@ -124,18 +133,17 @@
         this.draw();
       }
       
-      formatTime(minutes) {
-        const hours = Math.floor(minutes / 60);
-        const mins = minutes % 60;
-        const days = Math.floor(hours / 24);
-        const hrs = hours % 24;
+      formatTime(minutes, maxMinutes) {
+        // Calculate relative time from "now" (most recent data point)
+        const relativeMinutes = minutes - maxMinutes;
+        const hours = Math.floor(Math.abs(relativeMinutes) / 60);
         
-        if (days > 0) {
-          return days + 'd ' + hrs + 'h';
-        } else if (hours > 0) {
-          return hours + 'h';
+        if (relativeMinutes === 0) {
+          return 'now';
+        } else if (hours === 0) {
+          return relativeMinutes + 'm';
         } else {
-          return minutes + 'm';
+          return '-' + hours + 'h';
         }
       }
       
@@ -198,16 +206,28 @@
           ctx.stroke();
         }
         
-        // Draw X-axis labels
+        // Draw X-axis labels - exactly 5 labels: -48h, -36h, -24h, -12h, now
         ctx.fillStyle = '#666';
         ctx.lineWidth = 1;
-        const numLabels = Math.min(6, this.labels.length);
-        const labelStep = Math.floor(this.labels.length / (numLabels - 1));
+        const maxMinutes = this.labels.length > 0 ? this.labels[this.labels.length - 1] : 0;
+        const targetHours = [-48, -36, -24, -12, 0];  // Hours from now
         
-        for (let i = 0; i < numLabels; i++) {
-          const idx = i === numLabels - 1 ? this.labels.length - 1 : i * labelStep;
-          const x = padding.left + (chartWidth / (this.labels.length - 1)) * idx;
-          const label = this.formatTime(this.labels[idx]);
+        for (let i = 0; i < targetHours.length; i++) {
+          const targetMinutes = maxMinutes + (targetHours[i] * 60);
+          
+          // Find closest data point to target time
+          let closestIdx = 0;
+          let minDiff = Math.abs(this.labels[0] - targetMinutes);
+          for (let j = 1; j < this.labels.length; j++) {
+            const diff = Math.abs(this.labels[j] - targetMinutes);
+            if (diff < minDiff) {
+              minDiff = diff;
+              closestIdx = j;
+            }
+          }
+          
+          const x = padding.left + (chartWidth / (this.labels.length - 1)) * closestIdx;
+          const label = targetHours[i] === 0 ? 'now' : targetHours[i] + 'h';
           
           ctx.textAlign = 'center';
           ctx.fillText(label, x, this.height - 10);
@@ -354,12 +374,39 @@
         const response = await fetch('/current');
         const data = await response.json();
         
-        document.getElementById('currentVoltage').textContent = 
-          data.voltage.toFixed(1) + ' V';
-        document.getElementById('currentCurrent').textContent = 
-          data.current.toFixed(1) + ' A';
-        document.getElementById('currentSoc').textContent = 
-          data.soc.toFixed(1) + ' %';
+        // Update voltage with color based on lead acid 12V state
+        const voltageEl = document.getElementById('currentVoltage');
+        voltageEl.textContent = data.voltage.toFixed(1) + ' V';
+        voltageEl.className = 'stat-value';
+        if (data.voltage < 12.0) {
+          voltageEl.classList.add('red');
+        } else if (data.voltage < 12.5) {
+          voltageEl.classList.add('amber');
+        } else {
+          voltageEl.classList.add('green');
+        }
+        
+        // Update current with color based on charge/discharge
+        const currentEl = document.getElementById('currentCurrent');
+        currentEl.textContent = data.current.toFixed(1) + ' A';
+        currentEl.className = 'stat-value';
+        if (data.current < 0) {
+          currentEl.classList.add('red');  // Discharging
+        } else {
+          currentEl.classList.add('green');  // Charging
+        }
+        
+        // Update SOC with color based on percentage
+        const socEl = document.getElementById('currentSoc');
+        socEl.textContent = data.soc.toFixed(1) + ' %';
+        socEl.className = 'stat-value';
+        if (data.soc < 60) {
+          socEl.classList.add('red');
+        } else if (data.soc < 80) {
+          socEl.classList.add('amber');
+        } else {
+          socEl.classList.add('green');
+        }
       } catch (error) {
         console.error('Error fetching current values:', error);
       }
