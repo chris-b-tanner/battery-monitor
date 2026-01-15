@@ -8,11 +8,31 @@ A yacht/boat battery monitoring system with web interface for tracking voltage a
 - 🔄 Data persists through power outages
 - 📱 Mobile-responsive web interface
 - 📈 Real-time voltage and current charts with relative time (-48h to now)
+- 🎨 Color-coded indicators: voltage state, charge/discharge status, SOC level
+- 🔢 Physical 7-segment LED displays showing voltage (##.#V) and current (-##.#A)
 - 🔋 State of Charge (SOC) tracking with amp-hour integration
 - 📐 Peukert's Law applied for accurate SOC at varying discharge rates
 - ⚡ Automatic full battery detection (resets SOC to 100%)
 - 🌐 Self-contained (no internet required)
 - ⚡ Tracks both discharge (night) and charging (day/solar)
+
+## Color Coding
+
+The dashboard uses intuitive color coding for quick battery status assessment:
+
+### Voltage (12V Lead Acid):
+- 🔴 **Red** (< 12.0V): Discharged - battery needs charging
+- 🟠 **Amber** (12.0-12.5V): Partially charged
+- 🟢 **Green** (≥ 12.5V): Good charge state
+
+### Current:
+- 🔴 **Red** (negative): Discharging - consuming power
+- 🟢 **Green** (positive): Charging - receiving power
+
+### State of Charge (SOC):
+- 🔴 **Red** (< 60%): Low - charge soon
+- 🟠 **Amber** (60-80%): Moderate
+- 🟢 **Green** (≥ 80%): Good
 
 ## Marine Battery Use Case
 This system is designed for marine battery monitoring where:
@@ -32,6 +52,47 @@ This system is designed for marine battery monitoring where:
 7. **Persistence**: SOC saved every minute and restored after power loss
 
 ## Setup Instructions
+
+### Hardware Requirements
+
+**INA226 Current Sensor:**
+- SDA → GPIO21
+- SCL → GPIO22
+- 0.0015Ω shunt resistor
+
+**7-Segment LED Displays (2x 3-digit common anode):**
+- Use 220Ω-470Ω current-limiting resistors on each segment pin
+- ESP32 can source/sink up to 40mA per pin safely
+
+**Voltage Display** (3 digits showing ##.#V):
+- Digit 1 common anode → GPIO15
+- Digit 2 common anode → GPIO13
+- Digit 3 common anode → GPIO12
+
+**Current Display** (3 digits showing -##.# or -###A):
+- Digit 1 common anode → GPIO14
+- Digit 2 common anode → GPIO27
+- Digit 3 common anode → GPIO26
+
+**Shared Segment Pins** (all 6 digits):
+- Segment A → GPIO23 (with 330Ω resistor)
+- Segment B → GPIO19 (with 330Ω resistor)
+- Segment C → GPIO18 (with 330Ω resistor)
+- Segment D → GPIO5 (with 330Ω resistor)
+- Segment E → GPIO17 (with 330Ω resistor)
+- Segment F → GPIO16 (with 330Ω resistor)
+- Segment G → GPIO4 (with 330Ω resistor)
+- Segment DP → GPIO2 (with 330Ω resistor)
+
+**Display Operation:**
+- Multiplexed at 500Hz (each digit lit 1/6 of the time)
+- No additional driver ICs required
+- Direct GPIO control
+- Voltage always shows 1 decimal place (e.g., 12.5V)
+- Current shows 1 decimal when |I| < 10A (e.g., -9.9A)
+- Current shows 0 decimal when |I| ≥ 10A (e.g., -50A)
+
+### Software Setup
 
 ### 1. Upload the Filesystem (IMPORTANT!)
 Before uploading the main code, you must upload the web interface files to the ESP32's filesystem:

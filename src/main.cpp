@@ -15,6 +15,30 @@
 #define SDA_PIN 21
 #define SCL_PIN 22
 
+// 7-segment display pins (common anode, multiplexed, no additional ICs)
+// Segment pins (shared across all 6 digits) - active LOW
+#define SEG_A 23
+#define SEG_B 19
+#define SEG_C 18
+#define SEG_D 5
+#define SEG_E 17
+#define SEG_F 16
+#define SEG_G 4
+#define SEG_DP 2  // Decimal point
+
+// Digit common anode pins (active HIGH) - one per digit
+// Voltage display (3 digits: ##.#)
+#define DIGIT_V1 15  // Tens digit
+#define DIGIT_V2 13  // Ones digit  
+#define DIGIT_V3 12  // Tenths digit
+
+// Current display (3 digits: -##.# or -###)
+#define DIGIT_C1 14  // Sign/Tens digit
+#define DIGIT_C2 27  // Ones digit
+#define DIGIT_C3 26  // Tenths/ones digit
+
+#define DISPLAY_UPDATE_INTERVAL 2  // Update display every 2ms (500Hz refresh)
+
 // Shunt resistor value
 #define SHUNT_RESISTOR 0.0015  // 0.0015 Ohm (1.5 milliohm)
 
@@ -58,6 +82,36 @@ unsigned long lastSocCalcTime = 0;
 unsigned long fullDetectionStartTime = 0;
 bool batteryWasFull = false;
 
+// 7-segment display variables
+uint8_t voltageDigits[3] = {0, 0, 0};  // Voltage display buffer
+uint8_t currentDigits[3] = {0, 0, 0};  // Current display buffer
+uint8_t currentDigitIndex = 0;
+unsigned long lastDisplayUpdate = 0;
+float displayVoltage = 0.0;
+float displayCurrent = 0.0;
+
+// 7-segment encoding (common anode - segments are active LOW)
+// Format: 0bDPGFEDCBA (DP=decimal point, segments A-G)
+const uint8_t SEGMENT_DIGITS[10] = {
+  0b00111111,  // 0
+  0b00000110,  // 1
+  0b01011011,  // 2
+  0b01001111,  // 3
+  0b01100110,  // 4
+  0b01101101,  // 5
+  0b01111101,  // 6
+  0b00000111,  // 7
+  0b01111111,  // 8
+  0b01101111   // 9
+};
+const uint8_t SEGMENT_MINUS = 0b01000000;  // Minus sign
+const uint8_t SEGMENT_BLANK = 0b00000000;  // Blank
+const uint8_t SEGMENT_DP_MASK = 0b10000000;  // Decimal point mask
+
+const uint8_t SEGMENT_PINS[] = {SEG_A, SEG_B, SEG_C, SEG_D, SEG_E, SEG_F, SEG_G, SEG_DP};
+const uint8_t VOLTAGE_DIGIT_PINS[] = {DIGIT_V1, DIGIT_V2, DIGIT_V3};
+const uint8_t CURRENT_DIGIT_PINS[] = {DIGIT_C1, DIGIT_C2, DIGIT_C3};
+
 INA226 ina(INA226_ADDRESS);
 AsyncWebServer server(80);
 
@@ -76,6 +130,9 @@ void calculateSoc();
 void checkBatteryFull(float voltage, float current);
 String getDataJSON();
 String getSocJSON();
+void initDisplay();
+void updateDisplayBuffers(float voltage, float current);
+void refreshDisplay();
 
 // Save data to flash
 void saveData() {
@@ -344,6 +401,132 @@ void loadTestData() {
   Serial.println("Pattern: Night discharge → Dawn transition → Day solar charge → Dusk → Evening discharge (repeating)");
 }
 
+// Initialize 7-segment display pins
+void initDisplay() {
+  // Set up segment pins (active LOW)
+  for (int i = 0; i < 8; i++) {
+    pinMode(SEGMENT_PINS[i], OUTPUT);
+    digitalWrite(SEGMENT_PINS[i], HIGH);  // OFF (common anode)
+  }
+  
+  // Set up digit select pins (active HIGH)
+  for (int i = 0; i < 3; i++) {
+    pinMode(VOLTAGE_DIGIT_PINS[i], OUTPUT);
+    digitalWrite(VOLTAGE_DIGIT_PINS[i], LOW);  // OFF
+    pinMode(CURRENT_DIGIT_PINS[i], OUTPUT);
+    digitalWrite(CURRENT_DIGIT_PINS[i], LOW);  // OFF
+  }
+  
+  Serial.println("7-segment displays initialized");
+}
+
+// Update display buffers with current voltage and current
+void updateDisplayBuffers(float voltage, float current) {
+  displayVoltage = voltage;
+  displayCurrent = current;
+  
+  // Format voltage as ##.# (always 1 decimal place, always positive)
+  int voltageInt = (int)(voltage * 10.0 + 0.5);  // Round to nearest tenth
+  if (voltageInt > 999) voltageInt = 999;  // Clamp to 99.9V max
+  if (voltageInt < 0) voltageInt = 0;
+  
+  voltageDigits[0] = (voltageInt / 100) % 10;  // Tens
+  voltageDigits[1] = (voltageInt / 10) % 10;   // Ones (with DP)
+  voltageDigits[2] = voltageInt % 10;          // Tenths
+  
+  // Format current with adaptive decimal point
+  // -##.# for values -9.9 to 9.9
+  // -### for values < -9.9 or > 9.9
+  bool showDP = (current >= -9.9 && current <= 9.9);
+  bool negative = (current < 0);
+  float absCurrent = abs(current);
+  
+  if (showDP) {
+    // Show with decimal point: -##.#
+    int currentInt = (int)(absCurrent * 10.0 + 0.5);
+    if (currentInt > 99) currentInt = 99;  // Clamp to 9.9A
+    
+    if (negative) {
+      currentDigits[0] = 10;  // Minus sign
+    } else {
+      int tens = (currentInt / 100) % 10;
+      currentDigits[0] = tens;  // Could be 0 (blank leading zero handled in display)
+    }
+    currentDigits[1] = (currentInt / 10) % 10;  // Ones (with DP)
+    currentDigits[2] = currentInt % 10;         // Tenths
+  } else {
+    // No decimal point: -###
+    int currentInt = (int)(absCurrent + 0.5);
+    if (currentInt > 999) currentInt = 999;  // Clamp to 999A
+    
+    if (negative) {
+      currentDigits[0] = 10;  // Minus sign
+      currentDigits[1] = (currentInt / 10) % 10;  // Tens
+      currentDigits[2] = currentInt % 10;         // Ones
+    } else {
+      currentDigits[0] = (currentInt / 100) % 10;  // Hundreds
+      currentDigits[1] = (currentInt / 10) % 10;   // Tens
+      currentDigits[2] = currentInt % 10;          // Ones
+    }
+  }
+}
+
+// Refresh one digit of the multiplexed display
+void refreshDisplay() {
+  // Turn off all digits first
+  for (int i = 0; i < 3; i++) {
+    digitalWrite(VOLTAGE_DIGIT_PINS[i], LOW);
+    digitalWrite(CURRENT_DIGIT_PINS[i], LOW);
+  }
+  
+  // Determine which display (voltage or current) based on digit index
+  bool isVoltage = (currentDigitIndex < 3);
+  uint8_t localDigitIndex = currentDigitIndex % 3;
+  uint8_t digitValue;
+  bool showDP = false;
+  
+  if (isVoltage) {
+    digitValue = voltageDigits[localDigitIndex];
+    // Decimal point after ones digit (index 1)
+    showDP = (localDigitIndex == 1);
+  } else {
+    digitValue = currentDigits[localDigitIndex];
+    // Decimal point after ones digit (index 1) if applicable
+    bool currentHasDP = (displayCurrent >= -9.9 && displayCurrent <= 9.9);
+    showDP = currentHasDP && (localDigitIndex == 1);
+  }
+  
+  // Set segment outputs
+  uint8_t segments;
+  if (digitValue == 10) {
+    segments = SEGMENT_MINUS;  // Minus sign
+  } else if (digitValue < 10) {
+    segments = SEGMENT_DIGITS[digitValue];
+  } else {
+    segments = SEGMENT_BLANK;
+  }
+  
+  // Add decimal point if needed
+  if (showDP) {
+    segments |= SEGMENT_DP_MASK;
+  }
+  
+  // Write segments (active LOW - invert the bits)
+  for (int i = 0; i < 8; i++) {
+    digitalWrite(SEGMENT_PINS[i], (segments & (1 << i)) ? LOW : HIGH);
+  }
+  
+  // Turn on the selected digit
+  if (isVoltage) {
+    digitalWrite(VOLTAGE_DIGIT_PINS[localDigitIndex], HIGH);
+  } else {
+    digitalWrite(CURRENT_DIGIT_PINS[localDigitIndex], HIGH);
+  }
+  
+  // Move to next digit
+  currentDigitIndex = (currentDigitIndex + 1) % 6;  // 6 total digits (3 voltage + 3 current)
+}
+
 void setup() {
   Serial.begin(115200);
   delay(1000);
@@ -448,6 +631,17 @@ void setup() {
   lastLogTime = millis() - LOG_INTERVAL_MS;  // Trigger immediate log on first loop
   lastSocCalcTime = millis();  // Initialize SOC calculation timer
   
+  // Initialize 7-segment displays
+  initDisplay();
+  
+  // Set initial display values
+  if (IS_TEST) {
+    int lastIdx = (dataIndex > 0) ? dataIndex - 1 : dataCount - 1;
+    updateDisplayBuffers(dataLog[lastIdx].voltage, dataLog[lastIdx].current);
+  } else {
+    updateDisplayBuffers(12.5, 0.0);  // Default values until first reading
+  }
+  
   // Log first data point immediately on first boot (skip in test mode)
   if (!dataLoaded && !IS_TEST) {
     logData();
@@ -456,6 +650,26 @@ void setup() {
 
 void loop() {
   unsigned long currentTime = millis();
+  static unsigned long lastDisplayBufferUpdate = 0;
+  
+  // Refresh display multiplexing every 2ms (500Hz)
+  if (currentTime - lastDisplayUpdate >= DISPLAY_UPDATE_INTERVAL) {
+    refreshDisplay();
+    lastDisplayUpdate = currentTime;
+  }
+  
+  // Update display buffer values every 500ms
+  if (currentTime - lastDisplayBufferUpdate >= 500) {
+    if (IS_TEST) {
+      int lastIdx = (dataIndex > 0) ? dataIndex - 1 : dataCount - 1;
+      updateDisplayBuffers(dataLog[lastIdx].voltage, dataLog[lastIdx].current);
+    } else {
+      float voltage = ina.getBusVoltage();
+      float current = ina.getCurrent_mA() / 1000.0;
+      updateDisplayBuffers(voltage, current);
+    }
+    lastDisplayBufferUpdate = currentTime;
+  }
   
   // Calculate SOC every 10 seconds (only in real mode)
   if (!IS_TEST && currentTime - lastSocCalcTime >= SOC_CALC_INTERVAL_MS) {
@@ -468,7 +682,8 @@ void loop() {
     lastLogTime = currentTime;
   }
   
-  delay(100);
+  // Small delay to prevent tight loop
+  delayMicroseconds(100);
 }
 
 void logData() {
