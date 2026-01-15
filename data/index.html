@@ -33,14 +33,9 @@
       text-align: center;
       flex: 1;
     }
-    .stat-label {
-      color: #666;
-      font-size: 13px;
-      margin-bottom: 5px;
-    }
     .stat-value {
       color: #333;
-      font-size: 24px;
+      font-size: 28px;
       font-weight: 600;
     }
     .chart-container {
@@ -73,11 +68,9 @@
   <div class="container">
     <div class="stats">
       <div class="stat-item">
-        <div class="stat-label">Voltage</div>
         <div class="stat-value" id="currentVoltage">--</div>
       </div>
       <div class="stat-item">
-        <div class="stat-label">Current</div>
         <div class="stat-value" id="currentCurrent">--</div>
       </div>
     </div>
@@ -97,10 +90,11 @@
 
   <script>
     class SimpleChart {
-      constructor(canvas, color) {
+      constructor(canvas, color, showZeroLine = false) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
         this.color = color;
+        this.showZeroLine = showZeroLine;
         this.data = [];
         this.labels = [];
         this.resize();
@@ -174,7 +168,20 @@
           ctx.fillText(value.toFixed(1), padding.left - 5, y + 4);
         }
         
+        // Draw zero line if enabled (for current chart)
+        if (this.showZeroLine && yMin < 0 && yMax > 0) {
+          const zeroY = padding.top + chartHeight - ((0 - yMin) / yRange) * chartHeight;
+          ctx.strokeStyle = '#000';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(padding.left, zeroY);
+          ctx.lineTo(padding.left + chartWidth, zeroY);
+          ctx.stroke();
+        }
+        
         // Draw X-axis labels
+        ctx.fillStyle = '#666';
+        ctx.lineWidth = 1;
         const numLabels = Math.min(6, this.labels.length);
         const labelStep = Math.floor(this.labels.length / (numLabels - 1));
         
@@ -187,7 +194,86 @@
           ctx.fillText(label, x, this.height - 10);
         }
         
-        // Draw line
+        // For current chart with zero line, draw two fills
+        if (this.showZeroLine && yMin < 0 && yMax > 0) {
+          const zeroY = padding.top + chartHeight - ((0 - yMin) / yRange) * chartHeight;
+          
+          // Draw positive fill (charging - green)
+          ctx.beginPath();
+          let firstPositive = true;
+          for (let i = 0; i < this.data.length; i++) {
+            const value = this.data[i];
+            const x = padding.left + (chartWidth / (this.data.length - 1)) * i;
+            const y = padding.top + chartHeight - ((value - yMin) / yRange) * chartHeight;
+            
+            if (value >= 0) {
+              if (firstPositive) {
+                ctx.moveTo(x, zeroY);
+                firstPositive = false;
+              }
+              ctx.lineTo(x, y);
+            } else if (!firstPositive) {
+              // Transition from positive to negative
+              ctx.lineTo(x, zeroY);
+              firstPositive = true;
+            }
+          }
+          // Close the path along zero line
+          ctx.lineTo(padding.left + chartWidth, zeroY);
+          ctx.lineTo(padding.left, zeroY);
+          ctx.closePath();
+          ctx.fillStyle = 'rgba(34, 197, 94, 0.2)';  // green
+          ctx.fill();
+          
+          // Draw negative fill (discharging - red)
+          ctx.beginPath();
+          let firstNegative = true;
+          for (let i = 0; i < this.data.length; i++) {
+            const value = this.data[i];
+            const x = padding.left + (chartWidth / (this.data.length - 1)) * i;
+            const y = padding.top + chartHeight - ((value - yMin) / yRange) * chartHeight;
+            
+            if (value < 0) {
+              if (firstNegative) {
+                ctx.moveTo(x, zeroY);
+                firstNegative = false;
+              }
+              ctx.lineTo(x, y);
+            } else if (!firstNegative) {
+              // Transition from negative to positive
+              ctx.lineTo(x, zeroY);
+              firstNegative = true;
+            }
+          }
+          // Close the path along zero line
+          ctx.lineTo(padding.left + chartWidth, zeroY);
+          ctx.lineTo(padding.left, zeroY);
+          ctx.closePath();
+          ctx.fillStyle = 'rgba(239, 68, 68, 0.2)';  // red
+          ctx.fill();
+        } else {
+          // Regular single-color fill for voltage chart
+          ctx.beginPath();
+          this.data.forEach((value, i) => {
+            const x = padding.left + (chartWidth / (this.data.length - 1)) * i;
+            const y = padding.top + chartHeight - ((value - yMin) / yRange) * chartHeight;
+            
+            if (i === 0) {
+              ctx.moveTo(x, y);
+            } else {
+              ctx.lineTo(x, y);
+            }
+          });
+          
+          ctx.lineTo(padding.left + chartWidth, padding.top + chartHeight);
+          ctx.lineTo(padding.left, padding.top + chartHeight);
+          ctx.closePath();
+          
+          ctx.fillStyle = this.color + '20';
+          ctx.fill();
+        }
+        
+        // Draw line on top
         ctx.beginPath();
         ctx.strokeStyle = this.color;
         ctx.lineWidth = 2;
@@ -204,14 +290,6 @@
         });
         
         ctx.stroke();
-        
-        // Draw filled area
-        ctx.lineTo(padding.left + chartWidth, padding.top + chartHeight);
-        ctx.lineTo(padding.left, padding.top + chartHeight);
-        ctx.closePath();
-        
-        ctx.fillStyle = this.color + '20';
-        ctx.fill();
       }
     }
     
@@ -221,8 +299,8 @@
       const voltageCanvas = document.getElementById('voltageChart');
       const currentCanvas = document.getElementById('currentChart');
       
-      voltageChart = new SimpleChart(voltageCanvas, '#4BC0C0');
-      currentChart = new SimpleChart(currentCanvas, '#FF6384');
+      voltageChart = new SimpleChart(voltageCanvas, '#4BC0C0', false);
+      currentChart = new SimpleChart(currentCanvas, '#888888', true);  // grey line, show zero line
       
       window.addEventListener('resize', () => {
         voltageChart.resize();

@@ -23,8 +23,8 @@ const char* ssid = "Fidelio";
 const char* password = "";  // No password
 
 // Data logging settings
-#define LOG_INTERVAL_MS (5 * 60 * 1000)  // 5 minutes in milliseconds
-#define MAX_DATA_POINTS 864  // 3 days at 5-minute intervals (3*24*12)
+#define LOG_INTERVAL_MS (10 * 60 * 1000)  // 10 minutes in milliseconds
+#define MAX_DATA_POINTS 432  // 3 days at 10-minute intervals (3*24*6)
 
 // Data structure
 struct DataPoint {
@@ -102,16 +102,16 @@ bool loadData() {
   return true;
 }
 
-// Load 24 hours of test data (288 data points at 5-minute intervals)
+// Load 24 hours of test data (144 data points at 10-minute intervals)
 void loadTestData() {
   Serial.println("Loading 24 hours of marine battery test data...");
   
-  dataCount = 288;  // 24 hours * 12 (5-min intervals per hour)
+  dataCount = 144;  // 24 hours * 6 (10-min intervals per hour)
   dataIndex = 0;
   bootTime = millis();
   
   for (int i = 0; i < dataCount; i++) {
-    unsigned long minutesElapsed = i * 5;  // 5 minute intervals
+    unsigned long minutesElapsed = i * 10;  // 10 minute intervals
     float hourOfDay = (minutesElapsed / 60.0);
     
     // Generate realistic marine battery voltage and current patterns
@@ -168,7 +168,7 @@ void loadTestData() {
   
   Serial.print("Marine battery test data loaded: ");
   Serial.print(dataCount);
-  Serial.println(" data points");
+  Serial.println(" data points (10 minute intervals)");
   Serial.println("Pattern: Night discharge → Dawn transition → Day solar charge → Dusk → Evening discharge");
 }
 
