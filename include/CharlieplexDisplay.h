@@ -9,65 +9,38 @@
 // ============================================================================
 // GHOSTING REDUCTION TUNING GUIDE
 // ============================================================================
-// Experiment with these parameters to reduce ghosting (dim segments that 
-// should be off). Start with one parameter at a time.
-//
 // DISPLAY_BRIGHTNESS (50-500μs)
-//   - Lower = dimmer & less ghosting (try 75-100 first)
+//   - Lower = dimmer & less ghosting
 //   - Higher = brighter & more ghosting
-//   - Start: 100μs
 //
 // INTER_SEGMENT_DELAY (0-50μs)
 //   - Adds delay between segments on same digit
 //   - Helps capacitance discharge between segment changes
-//   - Start: 10μs, increase if needed
 //
 // INTER_DIGIT_DELAY (0-100μs)
 //   - Adds blanking time between digits
 //   - Reduces crosstalk between consecutive digits
-//   - Start: 20μs, increase if needed
 //
 // DISCHARGE_PULSE (0-20μs)
 //   - Actively pulls all pins LOW between digits
 //   - Discharges any capacitive buildup
-//   - Start: 5μs, may help or hurt depending on circuit
 //
 // REVERSE_SCAN (true/false)
-//   - false: Scans D1→D2→D3→D4→D5→D6 (default)
+//   - false: Scans D1→D2→D3→D4→D5→D6
 //   - true:  Scans D6→D5→D4→D3→D2→D1 (reversed)
-//   - If D1 has ghosting but D6 doesn't, try reversing
-//   - Start: false
-//
-// RECOMMENDED TROUBLESHOOTING SEQUENCE:
-// 1. Set DISPLAY_BRIGHTNESS to 100 (dimmer)
-// 2. Add INTER_DIGIT_DELAY 20
-// 3. Try REVERSE_SCAN true (if lower digits look better)
-// 4. Add INTER_SEGMENT_DELAY 10 if still ghosting
-// 5. Try DISCHARGE_PULSE 5-10 as last resort
 // ============================================================================
 
 // Display brightness control (microseconds per segment)
-// Lower = dimmer, higher = brighter
-// Range: 50-500μs recommended
-#define DISPLAY_BRIGHTNESS 100      // Start with 100μs
+#define DISPLAY_BRIGHTNESS 100
 
-// Ghosting reduction parameters - experiment with these!
-#define INTER_SEGMENT_DELAY 0     // μs delay between segments on same digit (0-50)
-#define INTER_DIGIT_DELAY 30       // μs delay between digits (0-100) - START HERE
-#define DISCHARGE_PULSE 0         // μs to actively discharge pins between digits (0-20)
-#define REVERSE_SCAN false         // true = scan D6→D1 instead of D1→D6
+// Ghosting reduction parameters
+#define INTER_SEGMENT_DELAY 0      // μs delay between segments on same digit (0-50)
+#define INTER_DIGIT_DELAY 30       // μs delay between digits (0-100)
+#define DISCHARGE_PULSE 0          // μs to actively discharge pins between digits (0-20)
+#define REVERSE_SCAN true          // true = scan D6→D1 instead of D1→D6
 
-#define FLASH_INTERVAL_MS 400 
-
-// SELECT YOUR SCAN SEQUENCE HERE:
-#define SCAN_SEQUENCE_NORMAL    {0,1,2,3,4,5}  // D1→D2→D3→D4→D5→D6 (D1 ghosts)
-#define SCAN_SEQUENCE_REVERSE   {5,4,3,2,1,0}  // D6→D5→D4→D3→D2→D1 (D4 ghosts)
-#define SCAN_SEQUENCE_INTERLEAVE {1,4,0,3,2,5} // D2→D5→D1→D4→D3→D6 (try this!)
-#define SCAN_SEQUENCE_SKIP      {0,2,4,1,3,5}  // D1→D3→D5→D2→D4→D6
-#define SCAN_SEQUENCE_DP_FIRST  {1,4,2,5,0,3}  // D2→D5→D3→D6→D1→D4 (DP digits first)
-#define SCAN_SEQUENCE_ENDS_LAST {2,5,1,4,0,3}  // D3→D6→D2→D5→D1→D4 (problematic ends last)
-
-const uint8_t scanSequence[6] = SCAN_SEQUENCE_REVERSE;  // Start with DP_FIRST
+// Flash interval for charging indicator (milliseconds)
+#define FLASH_INTERVAL_MS 400
 
 // Display pin definitions
 #define CPIN0 33
@@ -114,21 +87,16 @@ const uint8_t digitPatterns[13] = {
   0b01101111,  // 9
   0b01000000,  // 10 = minus sign (G segment)
   0b00001000,  // 11 = underscore (D segment)
-  0b00000000   // 12 = Off
+  0b00000000   // 12 = blank
 };
 
 class CharlieplexDisplay {
 private:
-  uint8_t displayBuffer[6];  // What to show on each digit (0-9 or 10 for minus)
-  bool decimalPoints[6];     // Decimal point for each digit
+  uint8_t displayBuffer[6];     // What to show on each digit (0-9, 10=minus, 11=underscore, 12=blank)
+  bool decimalPoints[6];        // Decimal point for each digit
   uint8_t currentDigit;
-  unsigned long lastUpdate;
-  bool testMode;
-  unsigned long testModeStartTime;
-  uint8_t testDigitValue;
-  bool ghostingTestMode;  // If true, run ghosting test instead of digit cycle
-  int lastTestIndex;  // Track last test index for serial output
-  uint8_t toggleState = 0; // For flashing when negative
+  uint8_t toggleState;          // For flashing DP when charging
+  unsigned long lastFlashTime;
   
   void setAllPinsHighZ() {
     // Set all pins to true high impedance (no pull-ups/downs)
@@ -165,12 +133,8 @@ private:
 public:
   CharlieplexDisplay() {
     currentDigit = 0;
-    lastUpdate = 0;
-    testMode = false;
-    testModeStartTime = 0;
-    testDigitValue = 0;
-    ghostingTestMode = false;
-    lastTestIndex = -1;
+    toggleState = 0;
+    lastFlashTime = 0;
     for (int i = 0; i < 6; i++) {
       displayBuffer[i] = 0;
       decimalPoints[i] = false;
@@ -179,29 +143,6 @@ public:
   
   void begin() {
     setAllPinsHighZ();
-  }
-  
-  void startTestPattern() {
-    testMode = true;
-    ghostingTestMode = false;
-    testModeStartTime = millis();
-    testDigitValue = 0;
-  }
-  
-  void startGhostingTest() {
-    testMode = true;
-    ghostingTestMode = true;
-    testModeStartTime = millis();
-    lastTestIndex = -1;  // Reset to ensure first value prints
-  }
-  
-  void stopTestPattern() {
-    testMode = false;
-    ghostingTestMode = false;
-  }
-  
-  bool isTestMode() {
-    return testMode;
   }
   
   void setDigit(uint8_t digit, uint8_t value, bool dp = false) {
@@ -231,98 +172,34 @@ public:
     float absCurrent = abs(current);
 
     unsigned long currentTime = millis();
-    static unsigned long lastDisplayFlash = 0;
     
-    if (currentTime - lastDisplayFlash >= FLASH_INTERVAL_MS) {
-        if (toggleState == 0) {
-            toggleState = 1;
-        } else {
-            toggleState = 0;
-        }
-        lastDisplayFlash = currentTime;
+    // Toggle flash state every FLASH_INTERVAL_MS
+    if (currentTime - lastFlashTime >= FLASH_INTERVAL_MS) {
+      toggleState = 1 - toggleState;
+      lastFlashTime = currentTime;
     }
 
     int currentInt = (int)(absCurrent * 10.0 + 0.5);
     if (currentInt > 99) currentInt = 99;
 
-    // Flashing DP when charging
+    // Flash DP when charging, solid when discharging
     if (charging) {
-        if (toggleState == 1) {
-            decimalPoints[4] = false;   // DP after ones
-        } else {
-            decimalPoints[4] = true;   // DP after ones
-        }
+      decimalPoints[4] = (toggleState == 1);
     } else {
-        decimalPoints[4] = true;
+      decimalPoints[4] = true;
     }
 
-    // if (currentInt <= 10 || currentInt >= 10) {
-    //     displayBuffer[3] = 12; // First digit off
-    // } else {
-        displayBuffer[3] = (currentInt / 100) % 10;
-    // }
-    
+    displayBuffer[3] = (currentInt / 100) % 10;
     displayBuffer[4] = (currentInt / 10) % 10;
     displayBuffer[5] = currentInt % 10;
 
-    decimalPoints[3] = false;      
+    decimalPoints[3] = false;
     decimalPoints[5] = false;
   }
   
-  void updateTestPattern() {
-    // Cycle through digits 0-9 every second, with DP on
-    unsigned long elapsed = millis() - testModeStartTime;
-    testDigitValue = (elapsed / 1000) % 10;  // Change every second
-    
-    // Show same digit on all positions
-    for (int i = 0; i < 6; i++) {
-      displayBuffer[i] = testDigitValue;
-      decimalPoints[i] = true;  // Show all decimal points
-    }
-  }
-  
-  void updateGhostingTest() {
-    // Hold voltage at 12.3V and cycle current from -2.0A to +2.0A
-    unsigned long elapsed = millis() - testModeStartTime;
-    
-    // Cycle every 2 seconds through different current values
-    // -2.0 to +2.0 in 0.1A steps = 41 values
-    int testIndex = (elapsed / 2000) % 41;
-    
-    // Calculate current: -2.0 + (testIndex * 0.1)
-    float testCurrent = -2.0 + (testIndex * 0.1);
-    
-    // Print to serial when value changes
-    if (testIndex != lastTestIndex) {
-      Serial.print("Ghosting Test - Voltage: 12.3V, Current: ");
-      if (testCurrent >= 0) {
-        Serial.print("+");
-      }
-      Serial.print(testCurrent, 1);
-      Serial.println("A");
-      lastTestIndex = testIndex;
-    }
-    
-    // Set fixed voltage
-    setVoltage(12.3);
-    
-    // Set cycling current
-    setCurrent(testCurrent);
-  }
-  
-void refresh() {
-    // Update test pattern if in test mode
-    if (testMode) {
-      if (ghostingTestMode) {
-        updateGhostingTest();
-      } else {
-        updateTestPattern();
-      }
-    }
-    
-    // Use custom scan sequence
-    uint8_t displayDigit = scanSequence[currentDigit];
-
+  void refresh() {
+    // Determine which digit to display (support reverse scanning)
+    uint8_t displayDigit;
     if (REVERSE_SCAN) {
       displayDigit = 5 - currentDigit;  // Scan D6→D1
     } else {
@@ -346,9 +223,9 @@ void refresh() {
         uint8_t anode = digitMap[displayDigit][seg][0];
         uint8_t cathode = digitMap[displayDigit][seg][1];
         
-        // EXTRA DISCHARGE between segments that share pins (especially D4)
+        // Extra discharge between segments to prevent ghosting on shared pins
         setAllPinsHighZ();
-        delayMicroseconds(15);  // Let shared pins fully discharge
+        delayMicroseconds(15);
         
         lightSegment(anode, cathode);
         delayMicroseconds(DISPLAY_BRIGHTNESS);
