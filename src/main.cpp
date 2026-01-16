@@ -456,11 +456,14 @@ void setup() {
   display.begin();
   Serial.println("Charlieplexed 7-segment displays initialized");
   
-  // In test mode, start with test pattern for 15 seconds
+  // In test mode, start with ghosting test for 2 minutes
   if (IS_TEST) {
-    display.startTestPattern();
-    Serial.println("Test pattern active - cycling 0-9 for 15 seconds");
-    Serial.println("Watch all segments on all digits");
+    display.startGhostingTest();
+    Serial.println("GHOSTING TEST MODE - 82 seconds (41 values × 2s each)");
+    Serial.println("Voltage: 12.3V (constant)");
+    Serial.println("Current: Cycling -2.0A to +2.0A in 0.1A steps");
+    Serial.println("Watch for ghosting on D1 segment A (top bar of voltage tens digit)");
+    Serial.println("Each value displayed for 2 seconds");
   }
   
   // Set initial display values (will be used after test pattern ends)
@@ -482,13 +485,14 @@ void setup() {
 void loop() {
   unsigned long currentTime = millis();
   static unsigned long lastDisplayBufferUpdate = 0;
+  static unsigned long lastDisplayRefresh = 0;  
   static bool testPatternStopped = false;
   
-  // Stop test pattern after 15 seconds in test mode
-  if (IS_TEST && display.isTestMode() && !testPatternStopped && currentTime > 15000) {
+  // Stop test pattern after test completes (82 seconds for 41 values)
+  if (IS_TEST && display.isTestMode() && !testPatternStopped && currentTime > 90000) {
     display.stopTestPattern();
     testPatternStopped = true;
-    Serial.println("Test pattern complete - showing battery data");
+    Serial.println("Ghosting test complete - showing battery data");
     
     // Update display with current values
     int lastIdx = (dataIndex > 0) ? dataIndex - 1 : dataCount - 1;
@@ -496,8 +500,14 @@ void loop() {
     display.setCurrent(dataLog[lastIdx].current);
   }
   
-  // Refresh Charlieplex display (call frequently for multiplexing)
-  display.refresh();
+  // REPLACE: Refresh Charlieplex display at controlled rate
+  // Try values: 0 (fastest), 1, 2, 5, 10 milliseconds
+  #define REFRESH_INTERVAL_MS 0  // Start with 0, increase if ghosting
+  
+  if (currentTime - lastDisplayRefresh >= REFRESH_INTERVAL_MS) {
+    display.refresh();
+    lastDisplayRefresh = currentTime;
+  }
   
   // Update display buffer values every 500ms (skip if in test pattern mode)
   if (!display.isTestMode() && currentTime - lastDisplayBufferUpdate >= 500) {
