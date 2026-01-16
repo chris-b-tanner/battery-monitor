@@ -6,6 +6,11 @@
 
 #include <Arduino.h>
 
+// Display brightness control (microseconds per segment)
+// Lower = dimmer, higher = brighter
+// Range: 50-500μs recommended
+#define DISPLAY_BRIGHTNESS 50  // Default 150μs (adjust as needed)
+
 // Display pin definitions
 #define CPIN0 23
 #define CPIN1 19
@@ -29,7 +34,7 @@ const uint8_t digitMap[6][8][2] = {
   // D3 (Voltage tenths)
   {{1,2}, {1,3}, {1,4}, {1,5}, {1,6}, {1,7}, {1,8}, {4,5}},
   // D4 (Current sign/tens)
-  {{2,1}, {255,255}, {4,1}, {5,1}, {255,255}, {7,1}, {8,1}, {5,4}},  // B and E missing
+  {{2,1}, {3,1}, {4,1}, {5,1}, {6,1}, {7,1}, {8,1}, {5,4}},  // All segments present!
   // D5 (Current ones)
   {{2,3}, {2,4}, {2,5}, {2,6}, {2,7}, {2,8}, {4,6}, {4,7}},
   // D6 (Current tenths/ones)
@@ -213,7 +218,7 @@ public:
         uint8_t anode = digitMap[currentDigit][seg][0];
         uint8_t cathode = digitMap[currentDigit][seg][1];
         lightSegment(anode, cathode);
-        delayMicroseconds(200);  // Light time per segment
+        delayMicroseconds(DISPLAY_BRIGHTNESS);  // Configurable brightness
       }
     }
     
