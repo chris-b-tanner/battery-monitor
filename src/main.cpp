@@ -7,7 +7,7 @@
 #include "CharlieplexDisplay.h"
 
 // Test mode - set to true to load sample data instead of from filesystem
-#define IS_TEST true
+#define IS_TEST false
 
 // INA226 I2C address (default is 0x40, verify with your module)
 #define INA226_ADDRESS 0x40

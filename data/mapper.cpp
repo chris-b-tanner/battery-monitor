@@ -1,15 +1,15 @@
 #include <Arduino.h>
 
 // Define the 9 pins you'll connect the display to
-#define PIN0 23
-#define PIN1 19
-#define PIN2 18
-#define PIN3 5
-#define PIN4 17
-#define PIN5 16
-#define PIN6 4
-#define PIN7 2
-#define PIN8 15
+#define PIN0 33
+#define PIN1 25
+#define PIN2 4
+#define PIN3 17
+#define PIN4 16
+#define PIN5 32
+#define PIN6 18
+#define PIN7 19
+#define PIN8 23
 
 // Button for manual progression
 #define BUTTON_PIN 27
@@ -18,6 +18,9 @@ const uint8_t displayPins[] = {PIN0, PIN1, PIN2, PIN3, PIN4, PIN5, PIN6, PIN7, P
 const int numPins = 9;
 
 bool waitForButtonPress() {
+  delay(200);
+  return true;
+
   // Wait for button to be pressed (LOW)
   while (digitalRead(BUTTON_PIN) == HIGH) {
     delay(10);

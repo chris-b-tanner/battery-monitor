@@ -49,30 +49,36 @@
 // Display brightness control (microseconds per segment)
 // Lower = dimmer, higher = brighter
 // Range: 50-500μs recommended
-#define DISPLAY_BRIGHTNESS 50      // Start with 100μs
+#define DISPLAY_BRIGHTNESS 100      // Start with 100μs
 
 // Ghosting reduction parameters - experiment with these!
 #define INTER_SEGMENT_DELAY 0     // μs delay between segments on same digit (0-50)
-#define INTER_DIGIT_DELAY 0       // μs delay between digits (0-100) - START HERE
+#define INTER_DIGIT_DELAY 30       // μs delay between digits (0-100) - START HERE
 #define DISCHARGE_PULSE 0         // μs to actively discharge pins between digits (0-20)
-#define REVERSE_SCAN true         // true = scan D6→D1 instead of D1→D6
+#define REVERSE_SCAN false         // true = scan D6→D1 instead of D1→D6
 
-#define SCAN_SEQUENCE_NORMAL    {0,1,2,3,4,5}  // D1→D2→D3→D4→D5→D6 (D1 ghosts)
 #define FLASH_INTERVAL_MS 400 
 
 // SELECT YOUR SCAN SEQUENCE HERE:
-const uint8_t scanSequence[6] = SCAN_SEQUENCE_NORMAL;
+#define SCAN_SEQUENCE_NORMAL    {0,1,2,3,4,5}  // D1→D2→D3→D4→D5→D6 (D1 ghosts)
+#define SCAN_SEQUENCE_REVERSE   {5,4,3,2,1,0}  // D6→D5→D4→D3→D2→D1 (D4 ghosts)
+#define SCAN_SEQUENCE_INTERLEAVE {1,4,0,3,2,5} // D2→D5→D1→D4→D3→D6 (try this!)
+#define SCAN_SEQUENCE_SKIP      {0,2,4,1,3,5}  // D1→D3→D5→D2→D4→D6
+#define SCAN_SEQUENCE_DP_FIRST  {1,4,2,5,0,3}  // D2→D5→D3→D6→D1→D4 (DP digits first)
+#define SCAN_SEQUENCE_ENDS_LAST {2,5,1,4,0,3}  // D3→D6→D2→D5→D1→D4 (problematic ends last)
+
+const uint8_t scanSequence[6] = SCAN_SEQUENCE_REVERSE;  // Start with DP_FIRST
 
 // Display pin definitions
-#define CPIN0 23
-#define CPIN1 19
-#define CPIN2 18
-#define CPIN3 32
+#define CPIN0 33
+#define CPIN1 25
+#define CPIN2 4
+#define CPIN3 16
 #define CPIN4 17
-#define CPIN5 16
-#define CPIN6 4
-#define CPIN7 25
-#define CPIN8 33
+#define CPIN5 32
+#define CPIN6 18
+#define CPIN7 19
+#define CPIN8 23
 
 const uint8_t charliePins[] = {CPIN0, CPIN1, CPIN2, CPIN3, CPIN4, CPIN5, CPIN6, CPIN7, CPIN8};
 
@@ -250,11 +256,11 @@ public:
         decimalPoints[4] = true;
     }
 
-    if (currentInt <= 10 || currentInt >= 10) {
-        displayBuffer[3] = 12; // First digit off
-    } else {
+    // if (currentInt <= 10 || currentInt >= 10) {
+    //     displayBuffer[3] = 12; // First digit off
+    // } else {
         displayBuffer[3] = (currentInt / 100) % 10;
-    }
+    // }
     
     displayBuffer[4] = (currentInt / 10) % 10;
     displayBuffer[5] = currentInt % 10;
