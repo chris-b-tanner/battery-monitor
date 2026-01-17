@@ -16,10 +16,12 @@
 // Shunt resistor value
 #define SHUNT_RESISTOR 0.0015  // 0.0015 Ohm (1.5 milliohm)
 
-// Battery specifications
-#define BATTERY_CAPACITY_AH 300.0  // 300Ah battery bank
+// Battery specifications (configurable via web UI)
+float batteryCapacityAh = 300.0;  // Default 300Ah, user configurable
+unsigned long logIntervalMs = 10 * 60 * 1000;  // Default 10 minutes, user configurable
+
 #define PEUKERT_EXPONENT 1.1       // Peukert exponent for lead acid (typically 1.05-1.4)
-#define C20_RATE 15.0              // C20 rate in amps (300Ah / 20h = 15A)
+// C20_RATE calculated as batteryCapacityAh / 20.0 at runtime
 #define FULL_VOLTAGE_THRESHOLD 13.8  // Voltage threshold for "full" detection
 #define FULL_CURRENT_THRESHOLD 1.0   // Current below this (in A) indicates full when voltage high
 #define FULL_DETECTION_TIME 60000    // Must meet criteria for 60 seconds
@@ -32,7 +34,6 @@ const char* ssid = "Fidelio";
 const char* password = "";  // No password
 
 // Data logging settings
-#define LOG_INTERVAL_MS (10 * 60 * 1000)  // 10 minutes in milliseconds
 #define MAX_DATA_POINTS 288  // 48 hours at 10-minute intervals (48*6)
 
 // Display refresh rate
@@ -54,7 +55,7 @@ unsigned long bootTime = 0;
 
 // SOC tracking variables
 float socPercentage = 100.0;  // Current state of charge percentage
-float ampHoursRemaining = BATTERY_CAPACITY_AH;  // Amp-hours remaining
+float ampHoursRemaining = 300.0;  // Amp-hours remaining (will be set to batteryCapacityAh)
 unsigned long lastSocCalcTime = 0;
 unsigned long fullDetectionStartTime = 0;
 bool batteryWasFull = false;
@@ -68,12 +69,15 @@ AsyncWebServer server(80);
 // File paths for data storage
 const char* dataFilePath = "/datalog.bin";
 const char* socFilePath = "/soc.bin";
+const char* settingsFilePath = "/settings.bin";
 
 // Forward declarations
 void saveData();
 bool loadData();
 void saveSoc();
 bool loadSoc();
+void saveSettings();
+bool loadSettings();
 void logData();
 void calculateSoc();
 void checkBatteryFull(float voltage, float current);
@@ -168,6 +172,48 @@ bool loadSoc() {
   return true;
 }
 
+// Save settings to flash
+void saveSettings() {
+  File file = LittleFS.open(settingsFilePath, "w");
+  if (!file) {
+    Serial.println("Failed to open settings file for writing");
+    return;
+  }
+  
+  file.write((uint8_t*)&batteryCapacityAh, sizeof(batteryCapacityAh));
+  file.write((uint8_t*)&logIntervalMs, sizeof(logIntervalMs));
+  
+  file.close();
+  Serial.println("Settings saved to flash");
+}
+
+// Load settings from flash
+bool loadSettings() {
+  if (!LittleFS.exists(settingsFilePath)) {
+    Serial.println("No saved settings found - using defaults");
+    return false;
+  }
+  
+  File file = LittleFS.open(settingsFilePath, "r");
+  if (!file) {
+    Serial.println("Failed to open settings file for reading");
+    return false;
+  }
+  
+  file.read((uint8_t*)&batteryCapacityAh, sizeof(batteryCapacityAh));
+  file.read((uint8_t*)&logIntervalMs, sizeof(logIntervalMs));
+  
+  file.close();
+  
+  Serial.print("Settings loaded - Capacity: ");
+  Serial.print(batteryCapacityAh, 0);
+  Serial.print("Ah, Log interval: ");
+  Serial.print(logIntervalMs / 60000);
+  Serial.println(" minutes");
+  
+  return true;
+}
+
 // Calculate SOC based on current consumption/charging
 void calculateSoc() {
   unsigned long currentTime = millis();
@@ -190,7 +236,8 @@ void calculateSoc() {
   if (current < 0) {  // Discharging (negative current)
     float dischargeCurrent = abs(current);
     // Peukert correction factor: (I / C20)^(n-1)
-    float peukertFactor = pow(dischargeCurrent / C20_RATE, PEUKERT_EXPONENT - 1.0);
+    float c20Rate = batteryCapacityAh / 20.0;
+    float peukertFactor = pow(dischargeCurrent / c20Rate, PEUKERT_EXPONENT - 1.0);
     ahChange *= peukertFactor;  // Increases effective consumption at higher discharge rates
   }
   // When charging (positive current), no Peukert correction needed
@@ -198,15 +245,15 @@ void calculateSoc() {
   ampHoursRemaining += ahChange;
   
   // Clamp to battery capacity
-  if (ampHoursRemaining > BATTERY_CAPACITY_AH) {
-    ampHoursRemaining = BATTERY_CAPACITY_AH;
+  if (ampHoursRemaining > batteryCapacityAh) {
+    ampHoursRemaining = batteryCapacityAh;
   }
   if (ampHoursRemaining < 0) {
     ampHoursRemaining = 0;
   }
   
   // Calculate percentage
-  socPercentage = (ampHoursRemaining / BATTERY_CAPACITY_AH) * 100.0;
+  socPercentage = (ampHoursRemaining / batteryCapacityAh) * 100.0;
   
   // Check if battery is full
   checkBatteryFull(voltage, current);
@@ -235,7 +282,7 @@ void checkBatteryFull(float voltage, float current) {
       if (millis() - fullDetectionStartTime >= FULL_DETECTION_TIME) {
         // Battery is full! Reset SOC
         socPercentage = 100.0;
-        ampHoursRemaining = BATTERY_CAPACITY_AH;
+        ampHoursRemaining = batteryCapacityAh;
         batteryWasFull = true;
         
         Serial.println("Battery detected as FULL - SOC reset to 100%");
@@ -281,12 +328,15 @@ void setup() {
   }
   Serial.println("LittleFS mounted successfully");
   
+  // Load settings first (battery capacity, log interval)
+  loadSettings();
+  
   // Load data and SOC from flash
   bool dataLoaded = loadData();
   if (!loadSoc()) {
     // If no saved SOC, start at 100%
     socPercentage = 100.0;
-    ampHoursRemaining = BATTERY_CAPACITY_AH;
+    ampHoursRemaining = batteryCapacityAh;
   }
   
   // Initialize I2C with specified pins
@@ -338,6 +388,44 @@ void setup() {
     request->send(200, "application/json", json);
   });
   
+  server.on("/settings", HTTP_GET, [](AsyncWebServerRequest *request){
+    String json = "{";
+    json += "\"batteryCapacity\":" + String(batteryCapacityAh, 1) + ",";
+    json += "\"logInterval\":" + String(logIntervalMs / 60000);  // Convert to minutes
+    json += "}";
+    request->send(200, "application/json", json);
+  });
+  
+  server.on("/settings", HTTP_POST, [](AsyncWebServerRequest *request){
+    bool updated = false;
+    
+    if (request->hasParam("batteryCapacity", true)) {
+      float newCapacity = request->getParam("batteryCapacity", true)->value().toFloat();
+      if (newCapacity > 0 && newCapacity <= 10000) {  // Sanity check
+        batteryCapacityAh = newCapacity;
+        // Reset SOC to match new capacity
+        ampHoursRemaining = batteryCapacityAh * (socPercentage / 100.0);
+        updated = true;
+      }
+    }
+    
+    if (request->hasParam("logInterval", true)) {
+      unsigned long newInterval = request->getParam("logInterval", true)->value().toInt();
+      if (newInterval >= 1 && newInterval <= 1440) {  // 1 minute to 24 hours
+        logIntervalMs = newInterval * 60000;  // Convert minutes to milliseconds
+        updated = true;
+      }
+    }
+    
+    if (updated) {
+      saveSettings();
+      saveSoc();  // Save updated ampHoursRemaining
+      request->send(200, "text/plain", "Settings saved");
+    } else {
+      request->send(400, "text/plain", "Invalid settings");
+    }
+  });
+  
   server.begin();
   Serial.println("Web server started");
   
@@ -346,7 +434,7 @@ void setup() {
   if (!dataLoaded) {
     bootTime = millis();
   }
-  lastLogTime = millis() - LOG_INTERVAL_MS;  // Trigger immediate log on first loop
+  lastLogTime = millis() - logIntervalMs;  // Trigger immediate log on first loop
   lastSocCalcTime = millis();  // Initialize SOC calculation timer
   
   // Initialize Charlieplexed display
@@ -388,8 +476,8 @@ void loop() {
     calculateSoc();
   }
   
-  // Log data every 10 minutes
-  if (currentTime - lastLogTime >= LOG_INTERVAL_MS) {
+  // Log data at configured interval
+  if (currentTime - lastLogTime >= logIntervalMs) {
     logData();
     lastLogTime = currentTime;
   }
