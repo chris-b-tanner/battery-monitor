@@ -1,8 +1,34 @@
 // Charlieplexed 6-digit display driver
+// Based on user's mapping data
+
 #ifndef CHARLIEPLEX_DISPLAY_H
 #define CHARLIEPLEX_DISPLAY_H
 
 #include <Arduino.h>
+
+// ============================================================================
+// GHOSTING REDUCTION TUNING GUIDE
+// ============================================================================
+// DISPLAY_BRIGHTNESS (50-500μs)
+//   - Lower = dimmer & less ghosting
+//   - Higher = brighter & more ghosting
+//
+// INTER_SEGMENT_DELAY (0-50μs)
+//   - Adds delay between segments on same digit
+//   - Helps capacitance discharge between segment changes
+//
+// INTER_DIGIT_DELAY (0-100μs)
+//   - Adds blanking time between digits
+//   - Reduces crosstalk between consecutive digits
+//
+// DISCHARGE_PULSE (0-20μs)
+//   - Actively pulls all pins LOW between digits
+//   - Discharges any capacitive buildup
+//
+// REVERSE_SCAN (true/false)
+//   - false: Scans D1→D2→D3→D4→D5→D6
+//   - true:  Scans D6→D5→D4→D3→D2→D1 (reversed)
+// ============================================================================
 
 // Display brightness control (microseconds per segment)
 #define DISPLAY_BRIGHTNESS 100
@@ -71,6 +97,10 @@ private:
   uint8_t currentDigit;
   uint8_t toggleState;          // For flashing DP when charging
   unsigned long lastFlashTime;
+  unsigned long lastSocDisplayTime;  // Track when to show SOC
+  bool showingSoc;              // Currently showing SOC instead of voltage
+  float cachedVoltage;          // Store voltage when showing SOC
+  float cachedSoc;              // Store SOC to display
   
   void setAllPinsHighZ() {
     // Set all pins to true high impedance (no pull-ups/downs)
@@ -109,6 +139,10 @@ public:
     currentDigit = 0;
     toggleState = 0;
     lastFlashTime = 0;
+    lastSocDisplayTime = 0;
+    showingSoc = false;
+    cachedVoltage = 0;
+    cachedSoc = 0;
     for (int i = 0; i < 6; i++) {
       displayBuffer[i] = 0;
       decimalPoints[i] = false;
@@ -139,6 +173,53 @@ public:
     decimalPoints[0] = false;
     decimalPoints[1] = true;   // DP after ones
     decimalPoints[2] = false;
+  }
+  
+  void setSoc(float soc) {
+    // Format as ### (no decimal point, 0-100%)
+    int socInt = (int)(soc + 0.5);  // Round to nearest integer
+    if (socInt > 100) socInt = 100;
+    if (socInt < 0) socInt = 0;
+    
+    if (socInt >= 100) {
+      displayBuffer[0] = 1;   // Show "100"
+      displayBuffer[1] = 0;
+      displayBuffer[2] = 0;
+    } else {
+      displayBuffer[0] = 12;  // Blank for leading space
+      displayBuffer[1] = (socInt / 10) % 10;  // Tens
+      displayBuffer[2] = socInt % 10;         // Ones
+    }
+    
+    decimalPoints[0] = false;
+    decimalPoints[1] = false;
+    decimalPoints[2] = false;
+  }
+  
+  void setVoltageAndSoc(float voltage, float soc) {
+    cachedVoltage = voltage;
+    cachedSoc = soc;
+    
+    unsigned long currentTime = millis();
+    unsigned long elapsedInCycle = currentTime - lastSocDisplayTime;
+    
+    // Show SOC for 1 second every 10 seconds (1000ms out of 10000ms)
+    if (elapsedInCycle >= 10000) {
+      // Start new cycle
+      lastSocDisplayTime = currentTime;
+      showingSoc = true;
+      setSoc(soc);
+    } else if (showingSoc && elapsedInCycle >= 1000) {
+      // Switch back to voltage after 1 second
+      showingSoc = false;
+      setVoltage(voltage);
+    } else if (showingSoc) {
+      // Still showing SOC
+      setSoc(soc);
+    } else {
+      // Showing voltage
+      setVoltage(voltage);
+    }
   }
   
   void setCurrent(float current) {

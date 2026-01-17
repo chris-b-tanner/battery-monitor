@@ -442,7 +442,7 @@ void setup() {
   Serial.println("Charlieplexed 7-segment displays initialized");
   
   // Set initial display values
-  display.setVoltage(12.5);
+  display.setVoltageAndSoc(12.5, socPercentage);
   display.setCurrent(0.0);
   
   // Log first data point immediately on first boot
@@ -466,7 +466,7 @@ void loop() {
   if (currentTime - lastDisplayBufferUpdate >= 500) {
     float voltage = ina.getBusVoltage();
     float current = ina.getCurrent_mA() / 1000.0;
-    display.setVoltage(voltage);
+    display.setVoltageAndSoc(voltage, socPercentage);
     display.setCurrent(current);
     lastDisplayBufferUpdate = currentTime;
   }
