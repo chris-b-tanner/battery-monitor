@@ -30,7 +30,7 @@ unsigned long logIntervalMs = 10 * 60 * 1000;  // Default 10 minutes, user confi
 #define SOC_CALC_INTERVAL_MS 10000  // Calculate SOC every 10 seconds
 
 // WiFi AP settings
-const char* ssid = "Fidelio";
+const char* ssid = "f-power";
 const char* password = "";  // No password
 
 // Data logging settings
@@ -221,6 +221,10 @@ void calculateSoc() {
     lastSocCalcTime = currentTime;
     return;
   }
+
+  // Save SOC only when it changes significantly or periodically
+  static unsigned long lastSocSaveTime = 0;
+  static float lastSavedSoc = socPercentage;
   
   // Calculate time elapsed in hours
   float hoursElapsed = (currentTime - lastSocCalcTime) / 3600000.0;
@@ -260,11 +264,14 @@ void calculateSoc() {
   
   lastSocCalcTime = currentTime;
   
-  // Save SOC every minute
-  static unsigned long lastSocSaveTime = 0;
-  if (currentTime - lastSocSaveTime >= 60000) {
+  // Save if SOC changed by >0.5% OR every 10 minutes
+  bool socChanged = abs(socPercentage - lastSavedSoc) > 0.5;
+  bool timeToSave = (currentTime - lastSocSaveTime >= 600000);  // 10 minutes
+  
+  if (socChanged || timeToSave) {
     saveSoc();
     lastSocSaveTime = currentTime;
+    lastSavedSoc = socPercentage;
   }
 }
 
