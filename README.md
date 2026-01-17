@@ -1,6 +1,6 @@
-# Marine Battery Monitor - INA226 Data Logger
+# Battery Monitor - INA226 Data Logger
 
-A yacht/boat battery monitoring system with web interface for tracking voltage and current over time.
+A battery monitoring system with web interface for tracking voltage and current over time.
 
 ## Features
 - 📊 Logs data every 10 minutes
@@ -13,8 +13,7 @@ A yacht/boat battery monitoring system with web interface for tracking voltage a
 - 🔋 State of Charge (SOC) tracking with amp-hour integration
 - 📐 Peukert's Law applied for accurate SOC at varying discharge rates
 - ⚡ Automatic full battery detection (resets SOC to 100%)
-- 🌐 Self-contained (no internet required)
-- ⚡ Tracks both discharge (night) and charging (day/solar)
+- ⚡ Tracks both discharge and charging
 
 ## Color Coding
 
@@ -34,14 +33,6 @@ The dashboard uses intuitive color coding for quick battery status assessment:
 - 🟠 **Amber** (60-80%): Moderate
 - 🟢 **Green** (≥ 80%): Good
 
-## Marine Battery Use Case
-This system is designed for marine battery monitoring where:
-- **Night/Evening**: Battery discharge (negative current) from house loads
-- **Day**: Battery charging (positive current) from solar panels
-- **Voltage tracking**: Monitor battery state of charge
-- **Current tracking**: See consumption patterns and solar charging efficiency
-- **SOC tracking**: Real-time state of charge percentage based on amp-hour integration
-
 ### How SOC Tracking Works
 1. **Initialization**: Starts at 100% or loads saved value from flash
 2. **Integration**: Every 10 seconds, calculates amp-hours consumed/charged
@@ -60,37 +51,14 @@ This system is designed for marine battery monitoring where:
 - SCL → GPIO22
 - 0.0015Ω shunt resistor
 
-**7-Segment LED Displays (2x 3-digit common anode):**
-- Use 220Ω-470Ω current-limiting resistors on each segment pin
-- ESP32 can source/sink up to 40mA per pin safely
-
-**Voltage Display** (3 digits showing ##.#V):
-- Digit 1 common anode → GPIO15
-- Digit 2 common anode → GPIO13
-- Digit 3 common anode → GPIO12
-
-**Current Display** (3 digits showing -##.# or -###A):
-- Digit 1 common anode → GPIO14
-- Digit 2 common anode → GPIO27
-- Digit 3 common anode → GPIO26
-
-**Shared Segment Pins** (all 6 digits):
-- Segment A → GPIO23 (with 330Ω resistor)
-- Segment B → GPIO19 (with 330Ω resistor)
-- Segment C → GPIO18 (with 330Ω resistor)
-- Segment D → GPIO5 (with 330Ω resistor)
-- Segment E → GPIO17 (with 330Ω resistor)
-- Segment F → GPIO16 (with 330Ω resistor)
-- Segment G → GPIO4 (with 330Ω resistor)
-- Segment DP → GPIO2 (with 330Ω resistor)
-
 **Display Operation:**
 - Multiplexed at 500Hz (each digit lit 1/6 of the time)
 - No additional driver ICs required
-- Direct GPIO control
 - Voltage always shows 1 decimal place (e.g., 12.5V)
 - Current shows 1 decimal when |I| < 10A (e.g., -9.9A)
 - Current shows 0 decimal when |I| ≥ 10A (e.g., -50A)
+- Top row shows the SoC for 1 second every 10 seconds.
+- When charging (negative current), decimal place of current line is flashing.
 
 ### Software Setup
 
@@ -117,22 +85,10 @@ After uploading the filesystem, upload the main code as normal:
 
 ### 3. Connect and View
 1. Wait for the ESP32 to boot
-2. Connect to WiFi network "Fidelio" (no password)
+2. Connect to WiFi network (no password)
 3. Open browser and navigate to `http://192.168.4.1`
 
 ## Configuration
-
-### Test Mode
-Test mode is **enabled by default** and provides 48 hours of realistic marine battery data at 10-minute intervals, showing:
-- Night discharge patterns (negative current)
-- Solar charging during the day (positive current)
-- Realistic voltage fluctuations (11-14V range)
-- Two complete day/night cycles
-
-To disable test mode and use real sensor data:
-- Edit `src/main.cpp`
-- Change `#define IS_TEST true` to `#define IS_TEST false`
-- Upload code
 
 ### Shunt Resistor
 Current shunt resistor value: **0.0015Ω** (1.5 milliohm)
@@ -145,14 +101,7 @@ ina.setMaxCurrentShunt(50.0, SHUNT_RESISTOR);
 ```
 
 ### Battery Capacity
-Battery bank capacity: **300Ah** (configured for lead acid)
-
-To change capacity, edit in `src/main.cpp`:
-```cpp
-#define BATTERY_CAPACITY_AH 300.0
-#define PEUKERT_EXPONENT 1.1       // Lead acid: 1.05-1.4, AGM: 1.05-1.15, Lithium: ~1.0
-#define C20_RATE 15.0              // Capacity / 20h (300Ah / 20h = 15A)
-```
+Battery bank capacity: to set, click the stats on the dashboard.
 
 **Peukert's Law:**
 The system applies Peukert's Law to account for reduced effective capacity at higher discharge rates. When discharging, the effective amp-hours consumed are multiplied by `(I/C20)^(n-1)` where:
@@ -184,19 +133,3 @@ ina226_test/
 └── data/
     └── index.html         # Web interface (uploaded to ESP32)
 ```
-
-## Troubleshooting
-
-**Charts not loading:**
-- Make sure you uploaded the filesystem image before uploading code
-- Check Serial Monitor for "LittleFS mounted successfully"
-
-**No WiFi network:**
-- Network name: "Fidelio"
-- No password required
-- Default IP: 192.168.4.1
-
-**INA226 not found:**
-- Check I2C wiring: SDA=GPIO21, SCL=GPIO22
-- Verify I2C address (default: 0x40)
-- Check power to INA226 module
