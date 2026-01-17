@@ -277,8 +277,17 @@ void calculateSoc() {
 
 // Check if battery is full and reset SOC to 100%
 void checkBatteryFull(float voltage, float current) {
-  // Detect full battery: voltage >= threshold AND current < threshold (nearly no charge current)
-  if (voltage >= FULL_VOLTAGE_THRESHOLD && abs(current) < FULL_CURRENT_THRESHOLD) {
+  // Calculate full current threshold as percentage of capacity
+  // Use C/200 rate (1% of capacity) as taper threshold
+  float fullCurrentThreshold = batteryCapacityAh / 100.0;
+
+  // Detect full battery: 
+  // 1. Voltage >= threshold
+  // 2. CHARGING (current > 0, not discharging)
+  // 3. Charge current has tapered below threshold
+  if (voltage >= FULL_VOLTAGE_THRESHOLD && 
+      current > 0 && 
+      current < fullCurrentThreshold) {
     if (!batteryWasFull) {
       // Start timing
       if (fullDetectionStartTime == 0) {
@@ -431,6 +440,17 @@ void setup() {
     } else {
       request->send(400, "text/plain", "Invalid settings");
     }
+  });
+
+  server.on("/setBatteryFull", HTTP_POST, [](AsyncWebServerRequest *request){
+    // Set SOC to 100%
+    socPercentage = 100.0;
+    ampHoursRemaining = batteryCapacityAh;
+    saveSoc();
+    
+    Serial.println("Manual SOC reset - Battery set to 100%");
+    
+    request->send(200, "text/plain", "Battery SOC set to 100%");
   });
   
   server.begin();
