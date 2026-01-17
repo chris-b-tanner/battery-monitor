@@ -1,34 +1,8 @@
 // Charlieplexed 6-digit display driver
-// Based on user's mapping data
-
 #ifndef CHARLIEPLEX_DISPLAY_H
 #define CHARLIEPLEX_DISPLAY_H
 
 #include <Arduino.h>
-
-// ============================================================================
-// GHOSTING REDUCTION TUNING GUIDE
-// ============================================================================
-// DISPLAY_BRIGHTNESS (50-500μs)
-//   - Lower = dimmer & less ghosting
-//   - Higher = brighter & more ghosting
-//
-// INTER_SEGMENT_DELAY (0-50μs)
-//   - Adds delay between segments on same digit
-//   - Helps capacitance discharge between segment changes
-//
-// INTER_DIGIT_DELAY (0-100μs)
-//   - Adds blanking time between digits
-//   - Reduces crosstalk between consecutive digits
-//
-// DISCHARGE_PULSE (0-20μs)
-//   - Actively pulls all pins LOW between digits
-//   - Discharges any capacitive buildup
-//
-// REVERSE_SCAN (true/false)
-//   - false: Scans D1→D2→D3→D4→D5→D6
-//   - true:  Scans D6→D5→D4→D3→D2→D1 (reversed)
-// ============================================================================
 
 // Display brightness control (microseconds per segment)
 #define DISPLAY_BRIGHTNESS 100
