@@ -31,7 +31,7 @@
 // ============================================================================
 
 // Display brightness control (microseconds per segment)
-#define DISPLAY_BRIGHTNESS 100
+#define DISPLAY_BRIGHTNESS 130
 
 // Ghosting reduction parameters
 #define INTER_SEGMENT_DELAY 0      // μs delay between segments on same digit (0-50)
@@ -235,7 +235,7 @@ public:
     }
 
     int currentInt = (int)(absCurrent * 10.0 + 0.5);
-    if (currentInt > 99) currentInt = 99;
+    if (currentInt > 999) currentInt = 999;
 
     // Flash DP when charging, solid when discharging
     if (charging) {
